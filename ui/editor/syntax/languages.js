@@ -3,13 +3,15 @@
 // format. Capture names map directly to CSS classes, so adding a class to
 // code-editor.js is enough to surface a new capture.
 
-const TS_VERSION = "0.25.10";
-const WASMS_VERSION = "0.1.13";
+// The tree-sitter runtime and grammars are vendored under
+// ui/vendor/tree-sitter (pinned: web-tree-sitter 0.25.10,
+// tree-sitter-wasms 0.1.13) so highlighting works offline and without a CDN —
+// WebView2 on Windows failed to load them remotely. Resolved from this
+// module's URL so the absolute URLs work inside web-tree-sitter's fetch().
+const VENDOR = new URL("../../vendor/tree-sitter", import.meta.url).href;
 
-export const TREE_SITTER_BASE =
-  `https://cdn.jsdelivr.net/npm/web-tree-sitter@${TS_VERSION}`;
-const WASMS_BASE =
-  `https://cdn.jsdelivr.net/npm/tree-sitter-wasms@${WASMS_VERSION}/out`;
+export const TREE_SITTER_BASE = VENDOR;
+const WASMS_BASE = `${VENDOR}/grammars`;
 
 const javascript = {
   wasm: `${WASMS_BASE}/tree-sitter-javascript.wasm`,

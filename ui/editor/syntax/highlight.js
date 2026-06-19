@@ -1,7 +1,8 @@
 // Real tree-sitter highlighter. The grammar runtime and per-language WASM
-// grammars are loaded lazily from a CDN, so the editor stays usable while
-// the network fetch is in flight (the renderer just falls back to plain
-// escaped text until the language is ready).
+// grammars are vendored locally (see languages.js) and loaded lazily, so the
+// editor stays usable while a grammar is still loading (the renderer just
+// falls back to plain escaped text until the language is ready) and works
+// fully offline.
 //
 // In web-tree-sitter 0.25 `node.startIndex`/`endIndex` are JS string
 // (UTF-16) code-unit offsets — verified empirically against em-dash
@@ -16,7 +17,7 @@ let initPromise = null;
 async function initTreeSitter() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    tsModule = await import(`${TREE_SITTER_BASE}/+esm`);
+    tsModule = await import(`${TREE_SITTER_BASE}/tree-sitter.js`);
     await tsModule.Parser.init({
       locateFile: (file) => `${TREE_SITTER_BASE}/${file}`,
     });
