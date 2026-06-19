@@ -14,9 +14,13 @@ set -euo pipefail
 
 REPO="Bilal1545/Bi-Code"
 APP_NAME="Bi-Code"
+# The launched binary's basename becomes the Wayland app_id / X11 WM_CLASS,
+# so the desktop file is named (and StartupWMClass set) to match it -> the
+# desktop environment can map the running window to this entry's icon.
+WM_CLASS="bi-code"
 PREFIX="${PREFIX:-/opt/Bi-Code}"
-BIN_LINK="${BIN_LINK:-/usr/local/bin/bi-code}"
-DESKTOP_FILE="/usr/share/applications/$APP_NAME.desktop"
+BIN_LINK="${BIN_LINK:-/usr/local/bin/$WM_CLASS}"
+DESKTOP_FILE="/usr/share/applications/$WM_CLASS.desktop"
 
 info() { printf '\033[1;34m::\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓\033[0m %s\n'  "$*"; }
@@ -33,6 +37,11 @@ uninstall() {
   $SUDO rm -rf "$PREFIX"
   $SUDO rm -f  "$BIN_LINK"
   $SUDO rm -f  "$DESKTOP_FILE"
+  for sz in 32 64 128 256; do
+    $SUDO rm -f "/usr/share/icons/hicolor/${sz}x${sz}/apps/$WM_CLASS.png"
+  done
+  command -v gtk-update-icon-cache >/dev/null 2>&1 \
+    && $SUDO gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
   command -v update-desktop-database >/dev/null 2>&1 \
     && $SUDO update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
   ok "$APP_NAME uninstalled."
@@ -91,16 +100,32 @@ $SUDO rm -rf "$PREFIX"
 $SUDO mkdir -p "$PREFIX"
 $SUDO cp "$SRC/bi-code" "$PREFIX/bi-code"
 $SUDO chmod +x "$PREFIX/bi-code"
-[ -d "$SRC/ui" ] && $SUDO cp -r "$SRC/ui" "$PREFIX/ui"
+[ -d "$SRC/ui" ]    && $SUDO cp -r "$SRC/ui" "$PREFIX/ui"
+[ -d "$SRC/icons" ] && $SUDO cp -r "$SRC/icons" "$PREFIX/icons"
 ok "Installed -> $PREFIX/bi-code (+ ui/)"
 
 # ---- launcher symlink -----------------------------------------------------
 $SUDO ln -sf "$PREFIX/bi-code" "$BIN_LINK"
 ok "Launcher -> $BIN_LINK"
 
-# ---- desktop entry --------------------------------------------------------
+# ---- install icons into the hicolor theme as "$WM_CLASS" ------------------
+# Theme icons (named after the app_id) let the desktop match the running
+# window to its icon. Falls back to the bundled SVG path if PNGs are absent.
 ICON="$PREFIX/ui/icon.svg"
-[ -f "$ICON" ] || ICON="$APP_NAME"
+for sz in 32 64 128 256; do
+  src="$SRC/icons/${sz}x${sz}.png"
+  [ "$sz" = 256 ] && src="$SRC/icons/128x128@2x.png"
+  if [ -f "$src" ]; then
+    dst="/usr/share/icons/hicolor/${sz}x${sz}/apps"
+    $SUDO mkdir -p "$dst"
+    $SUDO cp "$src" "$dst/$WM_CLASS.png"
+    ICON="$WM_CLASS"   # resolved from the theme by name
+  fi
+done
+command -v gtk-update-icon-cache >/dev/null 2>&1 \
+  && $SUDO gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
+[ "$ICON" = "$WM_CLASS" ] && ok "Installed theme icons ($WM_CLASS)"
+[ "$ICON" = "$PREFIX/ui/icon.svg" ] && [ ! -f "$ICON" ] && ICON="$APP_NAME"
 $SUDO tee "$DESKTOP_FILE" >/dev/null <<EOF
 [Desktop Entry]
 Type=Application
@@ -110,6 +135,7 @@ Exec=$PREFIX/bi-code %F
 Icon=$ICON
 Terminal=false
 Categories=Development;IDE;TextEditor;
+StartupWMClass=$WM_CLASS
 MimeType=text/plain;inode/directory;
 EOF
 command -v update-desktop-database >/dev/null 2>&1 \

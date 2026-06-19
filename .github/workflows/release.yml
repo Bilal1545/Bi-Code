@@ -111,6 +111,7 @@ jobs:
           rm -rf "$STAGE" && mkdir -p "$STAGE"
           cp "$BIN" "$STAGE/bi-code" && chmod +x "$STAGE/bi-code"
           cp -r ui "$STAGE/ui"
+          cp -r src-tauri/icons "$STAGE/icons"
           TARBALL="Bi-Code-${{ matrix.name }}.tar.gz"
           tar -czf "$TARBALL" "$STAGE"
           gh release upload "${{ steps.rel.outputs.tag }}" "$TARBALL" \
