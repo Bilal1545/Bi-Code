@@ -835,19 +835,132 @@ function showFileMenu(btn) {
 }
 
 // ----- clone repository / new window -----
+
+// Listing a user's repositories uses GitHub's OAuth device flow, which needs a
+// GitHub OAuth App Client ID (github.com → Settings → Developer settings →
+// OAuth Apps → New, then tick "Enable Device Flow"). Paste its Client ID here:
+const GITHUB_CLIENT_ID = "";
+const GH_TOKEN_KEY = "biCodeGithubToken";
+const ghToken = () => { try { return localStorage.getItem(GH_TOKEN_KEY) || ""; } catch (e) { return ""; } };
+const setGhToken = (t) => { try { t ? localStorage.setItem(GH_TOKEN_KEY, t) : localStorage.removeItem(GH_TOKEN_KEY); } catch (e) { /* ignore */ } };
+
+// Entry point: signed in → repo picker; otherwise offer sign-in or a URL.
 async function cloneRepo() {
+  const token = ghToken();
+  if (token) return cloneFromGitHub(token);
+  openQuickPick(
+    [
+      { label: "  Sign in to GitHub and pick a repository…", kind: "signin" },
+      { label: "  Clone from a URL instead…", kind: "url" },
+    ],
+    (it) => (it.kind === "signin" ? githubSignIn() : cloneFromUrl()),
+    "Clone repository"
+  );
+}
+
+async function cloneFromUrl() {
   const url = window.prompt("Repository URL to clone:", "https://github.com/");
   if (!url || !url.trim()) return;
+  await doClone((dest) => invoke("git_clone", { url: url.trim(), dest }));
+}
+
+// Show the signed-in account's repositories in the command palette picker.
+async function cloneFromGitHub(token) {
+  toast("Loading your repositories…");
+  let repos;
+  try {
+    repos = await invoke("gh_list_repos", { token });
+  } catch (e) {
+    setGhToken("");
+    toast("GitHub session expired — please sign in again.", true);
+    return cloneRepo();
+  }
+  const items = repos.map((r) => ({
+    label: (r.private ? "🔒 " : "📂 ") + r.full_name + (r.description ? "  —  " + r.description : ""),
+    repo: r,
+  }));
+  items.push({ label: "  ↪ Clone from a URL instead…", kind: "url" });
+  items.push({ label: "  ⎋ Sign out of GitHub", kind: "signout" });
+  openQuickPick(
+    items,
+    async (it) => {
+      if (it.kind === "url") return cloneFromUrl();
+      if (it.kind === "signout") { setGhToken(""); toast("Signed out of GitHub."); return; }
+      await doClone(
+        (dest) => invoke("gh_clone", { cloneUrl: it.repo.clone_url, token, dest }),
+        it.repo.full_name
+      );
+    },
+    "Select a repository to clone"
+  );
+}
+
+// Shared tail: pick a destination folder, run the clone, open the result.
+async function doClone(run, label) {
   const dest = await openDialog({ directory: true, multiple: false });
   if (!dest) return;
-  toast("Cloning…");
+  toast("Cloning " + (label || "") + "…");
   try {
-    const path = await invoke("git_clone", { url: url.trim(), dest });
+    const path = await run(dest);
     await setRoot(path);
     toast("Cloned into " + basename(path));
   } catch (e) {
     toast("Clone failed: " + e, true);
   }
+}
+
+// GitHub OAuth device flow: show a code, open the verify page, poll for a token.
+async function githubSignIn() {
+  if (!GITHUB_CLIENT_ID) {
+    toast("GitHub sign-in isn't configured yet (set GITHUB_CLIENT_ID in ide.js).", true);
+    return;
+  }
+  let dc;
+  try {
+    dc = await invoke("gh_device_start", { clientId: GITHUB_CLIENT_ID });
+  } catch (e) {
+    toast("GitHub sign-in failed: " + e, true);
+    return;
+  }
+  $("ghauth-code").textContent = dc.user_code;
+  $("ghauth-overlay").hidden = false;
+  const openPage = () => openExternal(dc.verification_uri);
+  $("ghauth-link").onclick = (e) => { e.preventDefault(); openPage(); };
+  openPage();
+
+  let cancelled = false;
+  const close = () => {
+    cancelled = true;
+    $("ghauth-overlay").hidden = true;
+    $("ghauth-cancel").onclick = null;
+  };
+  $("ghauth-cancel").onclick = close;
+
+  const deadline = Date.now() + (dc.expires_in || 900) * 1000;
+  let interval = dc.interval || 5;
+  const poll = async () => {
+    if (cancelled) return;
+    if (Date.now() > deadline) { close(); toast("GitHub sign-in timed out.", true); return; }
+    let res;
+    try {
+      res = await invoke("gh_device_poll", { clientId: GITHUB_CLIENT_ID, deviceCode: dc.device_code });
+    } catch (e) { close(); toast("GitHub sign-in failed: " + e, true); return; }
+    if (cancelled) return;
+    if (res.status === "authorized") {
+      setGhToken(res.token);
+      close();
+      toast("Signed in to GitHub.");
+      return cloneFromGitHub(res.token);
+    }
+    if (res.status === "slow_down") interval += 5;
+    if (res.status === "denied" || res.status === "expired" || res.status === "error") {
+      close();
+      toast("GitHub sign-in " + res.status + ".", true);
+      return;
+    }
+    setTimeout(poll, interval * 1000);
+  };
+  setTimeout(poll, interval * 1000);
 }
 function newWindow() {
   invoke("new_window").catch((e) => toast("Could not open window: " + e, true));

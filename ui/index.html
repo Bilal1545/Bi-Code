@@ -395,6 +395,22 @@
     </div>
   </div>
 
+  <!-- GitHub device-flow sign-in -->
+  <div id="ghauth-overlay" hidden>
+    <div id="ghauth-box" class="palette-box">
+      <h3 id="ghauth-title">Sign in to GitHub</h3>
+      <p class="muted">In the page that opened, enter this code:</p>
+      <div id="ghauth-code">--------</div>
+      <p class="muted">
+        Waiting for authorization…
+        <a href="#" id="ghauth-link">open the page again</a>
+      </p>
+      <div class="row" style="justify-content:flex-end">
+        <button id="ghauth-cancel" class="link-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>

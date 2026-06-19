@@ -714,10 +714,19 @@ table.db-grid td.rowmenu:hover { color: #f14c4c; }
 .ssh-row input:focus { outline: none; border-color: var(--accent); }
 
 /* ---------- Command palette ---------- */
-#palette-overlay, #quickpick-overlay {
+#palette-overlay, #quickpick-overlay, #ghauth-overlay {
   position: fixed; inset: 0; z-index: 4000;
   display: flex; align-items: flex-start; justify-content: center;
   padding-top: 80px; background: rgba(0,0,0,0.35);
+}
+#ghauth-box { padding: 18px 20px; }
+#ghauth-box h3 { margin: 0 0 8px; font-size: 15px; }
+#ghauth-box .muted { font-size: 13px; margin: 6px 0; }
+#ghauth-code {
+  font-family: ui-monospace, monospace; font-size: 28px; letter-spacing: 6px;
+  text-align: center; padding: 14px; margin: 10px 0;
+  background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px;
+  user-select: all;
 }
 #command-palette, .palette-box {
   width: 600px; max-width: 92vw;
