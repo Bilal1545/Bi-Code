@@ -50,8 +50,10 @@ Or, from a clone:
 ```sh
 ./install.sh            # install latest release
 ./install.sh v0.1.0     # install a specific tag
-./install.sh uninstall  # remove it
+./install.sh uninstall  # remove it (or run ./uninstall.sh)
 ```
+
+To uninstall later without the install script, run `./uninstall.sh`.
 
 Then open a folder and start editing. Some features need their tools installed:
 Git, Node.js, PHP, or `espflash`.
