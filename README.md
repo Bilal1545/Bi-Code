@@ -36,6 +36,23 @@ Download the installer for your platform from the [Releases page](../../releases
 - **macOS** — `.dmg` (Apple Silicon / Intel)
 - **Linux** — `.AppImage` or `.deb` (x86_64 / ARM64)
 
+### Linux / Arch (install script)
+
+Install the latest release into `/opt/Bi-Code` (binary + ui) with a `bi-code`
+launcher and a desktop menu entry:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Bilal1545/Bi-Code/main/install.sh | bash
+```
+
+Or, from a clone:
+
+```sh
+./install.sh            # install latest release
+./install.sh v0.1.0     # install a specific tag
+./install.sh uninstall  # remove it
+```
+
 Then open a folder and start editing. Some features need their tools installed:
 Git, Node.js, PHP, or `espflash`.
 

@@ -1,12 +1,13 @@
 name: Build & Release
 
 # Build Bi-Code for Windows, Linux and macOS — both x86_64 and ARM64.
-# Push a tag like v0.1.0 to publish a (draft) GitHub release with installers;
+# Publish a GitHub release and this workflow builds the installers and
+# attaches them to that same (latest) release;
 # or run manually (workflow_dispatch) to just get build artifacts.
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -70,11 +71,32 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target ${{ matrix.target }}
-          # Create / append to a draft release only when a tag was pushed.
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: "Bi-Code ${{ github.ref_name }}"
-          releaseDraft: true
-          prerelease: false
+          # Upload the installers as assets of the release that triggered this
+          # run. Empty on workflow_dispatch -> just builds artifacts, no upload.
+          releaseId: ${{ github.event.release.id }}
+
+      # ---- Linux: ship a raw "binary + ui" tarball (for /opt installs) ----
+      # The UI is embedded in the binary, but ui/ is included for reference.
+      - name: Package binary + ui (Linux)
+        if: runner.os == 'Linux' && github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          REL="src-tauri/target/${{ matrix.target }}/release"
+          BIN=""
+          for c in "Bi-Code" "editor-ide"; do
+            [ -x "$REL/$c" ] && { BIN="$REL/$c"; break; }
+          done
+          [ -n "$BIN" ] || { echo "binary not found in $REL"; ls -la "$REL"; exit 1; }
+          STAGE="Bi-Code"
+          rm -rf "$STAGE" && mkdir -p "$STAGE"
+          cp "$BIN" "$STAGE/bi-code" && chmod +x "$STAGE/bi-code"
+          cp -r ui "$STAGE/ui"
+          TARBALL="Bi-Code-${{ matrix.name }}.tar.gz"
+          tar -czf "$TARBALL" "$STAGE"
+          gh release upload "${{ github.event.release.tag_name }}" "$TARBALL" \
+            --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
