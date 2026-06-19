@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bi-Code</title>
+  <link rel="stylesheet" href="ide.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Title bar (custom, draggable) -->
+    <header id="titlebar" data-tauri-drag-region>
+      <div class="title-left" data-tauri-drag-region>
+        <img class="title-logo-img" src="icon.svg" alt="Bi-Code" width="18" height="18" data-tauri-drag-region />
+        <nav class="menu" id="menu">
+          <button class="menu-btn" data-menu="file">File</button>
+          <button class="menu-btn" data-menu="edit">Edit</button>
+          <button class="menu-btn" data-menu="selection">Selection</button>
+          <button class="menu-btn" data-menu="view">View</button>
+          <button class="menu-btn" data-menu="terminal">Terminal</button>
+          <button class="menu-btn" data-menu="help">Help</button>
+        </nav>
+      </div>
+      <div class="title-center" data-tauri-drag-region>
+        <button id="command-center" title="Search files and run commands">
+          <svg viewBox="0 0 24 24" width="13" height="13"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><line x1="15" y1="15" x2="20" y2="20" stroke="currentColor" stroke-width="1.8"/></svg>
+          <span id="cc-label">Bi-Code</span>
+        </button>
+      </div>
+      <div class="window-controls">
+        <button id="win-min" title="Minimize">&#x2013;</button>
+        <button id="win-max" title="Maximize">&#x25a1;</button>
+        <button id="win-close" title="Close" class="close">&#x2715;</button>
+      </div>
+    </header>
+
+    <div id="body">
+      <!-- Activity bar -->
+      <aside id="activitybar">
+        <button class="act-btn active" data-view="explorer" title="Explorer">
+          <svg viewBox="0 0 24 24" width="24" height="24"><path d="M3 4h7l2 2h9v12a2 2 0 0 1-2 2H3z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+        <button class="act-btn" data-view="search" title="Search">
+          <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="15" y1="15" x2="20" y2="20" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+        <button class="act-btn" data-view="scm" title="Source Control">
+          <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="6" cy="6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="6" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="18" cy="9" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 8.4v7.2M8.4 6H14a2 2 0 0 1 2 2v0.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+        <button class="act-btn" data-view="tasks" title="Commands">
+          <svg viewBox="0 0 24 24" width="24" height="24"><polygon points="6,5 18,12 6,19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="act-btn" data-view="debug" title="Run and Debug">
+          <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 5V3M7.5 7L6 5.5M16.5 7L18 5.5M5.5 11H3M21 11h-2.5M7 15l-1.6 1.6M17 15l1.6 1.6M12 17v3M9 9.5h6M9.5 13h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
+        <button class="act-btn" data-view="extensions" title="Themes &amp; Extensions">
+          <svg viewBox="0 0 24 24" width="24" height="24"><rect x="3" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="14" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14 17.5h7M17.5 14v7" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+        <button class="act-btn act-bottom" id="open-settings" data-view="settings" title="Settings">
+          <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+      </aside>
+
+      <!-- Sidebar -->
+      <section id="sidebar">
+        <!-- Explorer -->
+        <div id="explorer-view" class="sidebar-view">
+          <div class="sidebar-header">
+            <span id="sidebar-title">EXPLORER</span>
+            <div class="sidebar-actions">
+              <button id="new-file" title="New File">
+                <svg viewBox="0 0 16 16" width="15" height="15"><path d="M4 1.75h4.5L12 5.25V14a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.35A.6.6 0 0 1 4 1.75Z" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M8 7.2v3.6M6.2 9h3.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+              </button>
+              <button id="new-folder" title="New Folder">
+                <svg viewBox="0 0 16 16" width="15" height="15"><path d="M2 4.4a.8.8 0 0 1 .8-.8h2.5l1.2 1.3H13a.8.8 0 0 1 .8.8v6.1a.8.8 0 0 1-.8.8H2.8a.8.8 0 0 1-.8-.8Z" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M11 7.4v3M9.5 8.9h3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+              </button>
+              <button id="collapse-tree" title="Collapse Folders">
+                <svg viewBox="0 0 16 16" width="15" height="15"><path d="M4 4l3 3 3-3M4 12l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button id="refresh-tree" title="Refresh">&#x21bb;</button>
+            </div>
+          </div>
+          <div id="open-folder-prompt" class="panel-prompt">
+            <p>You have not opened a folder.</p>
+            <button id="open-folder-btn" class="primary-btn">Open Folder</button>
+            <button id="clone-repo-btn" class="primary-btn" style="margin-top:6px;background:var(--btn-bg)">Clone Repository…</button>
+          </div>
+          <div id="tree" class="tree" hidden></div>
+        </div>
+
+        <!-- Search -->
+        <div id="search-view" class="sidebar-view" hidden>
+          <div class="sidebar-header">
+            <span>SEARCH</span>
+          </div>
+          <div class="search-box">
+            <input id="search-input" type="text" placeholder="Search in folder…" />
+            <button id="search-case" class="search-toggle" title="Match Case">Aa</button>
+          </div>
+          <div id="search-results" class="search-results"></div>
+        </div>
+
+        <!-- Source Control -->
+        <div id="scm-view" class="sidebar-view" hidden>
+          <div class="sidebar-header">
+            <span>SOURCE CONTROL</span>
+            <div class="sidebar-actions">
+              <button id="git-refresh" title="Refresh">&#x21bb;</button>
+            </div>
+          </div>
+          <div id="scm-body" class="scm-body"></div>
+        </div>
+
+        <!-- Themes / extensions -->
+        <div id="extensions-view" class="sidebar-view" hidden>
+          <div class="sidebar-header">
+            <span>THEMES</span>
+          </div>
+          <div class="search-box">
+            <input id="ext-search" type="text" placeholder="Search themes…" spellcheck="false" />
+          </div>
+          <div id="ext-results" class="ext-results"></div>
+        </div>
+
+        <!-- Run and Debug -->
+        <div id="debug-view" class="sidebar-view" hidden>
+          <div class="sidebar-header"><span>RUN AND DEBUG</span></div>
+          <div class="debug-controls">
+            <div class="debug-toolbar">
+              <button id="dbg-run" title="Start (F5)">&#x25B6;</button>
+              <button id="dbg-continue" title="Continue" disabled>&#x23F5;</button>
+              <button id="dbg-stepover" title="Step Over" disabled>&#x2935;</button>
+              <button id="dbg-stepinto" title="Step Into" disabled>&#x2913;</button>
+              <button id="dbg-stepout" title="Step Out" disabled>&#x2912;</button>
+              <button id="dbg-stop" title="Stop" disabled>&#x23F9;</button>
+            </div>
+          </div>
+          <div class="debug-section"><div class="scm-section-title">Call Stack</div><div id="dbg-callstack" class="debug-list"></div></div>
+          <div class="debug-section"><div class="scm-section-title">Variables</div><div id="dbg-vars" class="debug-list"></div></div>
+          <div class="debug-section"><div class="scm-section-title">Breakpoints</div><div id="dbg-breakpoints" class="debug-list"></div></div>
+          <div class="debug-section debug-console-wrap"><div class="scm-section-title">Debug Console</div><div id="dbg-console" class="debug-console"></div></div>
+        </div>
+
+        <!-- Commands / tasks -->
+        <div id="tasks-view" class="sidebar-view" hidden>
+          <div class="sidebar-header">
+            <span>COMMANDS</span>
+            <div class="sidebar-actions">
+              <button id="tasks-add" title="Add / Manage Commands">&#xff0b;</button>
+            </div>
+          </div>
+          <div id="tasks-sidebar" class="scm-body"></div>
+        </div>
+      </section>
+
+      <!-- Editor area -->
+      <main id="editor-area">
+        <div id="tabbar"></div>
+        <div id="breadcrumb" hidden></div>
+        <div id="editor-host">
+          <!-- Image / SVG viewer -->
+          <div id="image-view" hidden>
+            <div class="image-wrap"><img id="image-el" alt="" /></div>
+          </div>
+          <button id="svg-toggle" hidden></button>
+          <div id="welcome">
+            <div class="welcome-inner">
+              <h1>Bi-Code</h1>
+              <p class="muted">A tree-sitter powered editor, in a VSCode-like shell.</p>
+              <div class="welcome-actions">
+                <button class="link-btn" id="welcome-open">Open Folder&hellip;</button>
+                <button class="link-btn" id="welcome-clone">Clone Repository&hellip;</button>
+              </div>
+              <p class="muted hint">Ctrl+S save &middot; Ctrl+W close tab &middot; Ctrl+` terminal</p>
+            </div>
+          </div>
+          <!-- SQLite table/query view (shown when a .db file is active) -->
+          <div id="db-view" hidden></div>
+          <!-- Theme/extension page (shown for extension tabs) -->
+          <div id="extension-view" hidden></div>
+          <!-- Hosts a terminal moved into the editor area -->
+          <div id="terminal-editor-host" hidden></div>
+          <!-- Live preview (shown for preview tabs) -->
+          <div id="preview-view" hidden>
+            <div class="preview-toolbar">
+              <button id="preview-back" class="mini-btn" title="Back">&#x2190;</button>
+              <button id="preview-reload" class="mini-btn" title="Reload">&#x21bb;</button>
+              <input id="preview-url" type="text" spellcheck="false" />
+              <button id="preview-external" class="mini-btn" title="Open in browser">&#x2197;</button>
+            </div>
+            <iframe id="preview-frame" src="about:blank"></iframe>
+          </div>
+        </div>
+        <!-- Integrated terminal -->
+        <div id="terminal-panel" hidden>
+          <div id="term-resize" title="Drag to resize"></div>
+          <div id="terminal-tabs">
+            <span id="term-active-name" class="term-active-name" draggable="true" title="Drag into the editor area to move this terminal">Terminal</span>
+            <div class="panel-actions">
+              <button id="term-split" title="Split Terminal">
+                <svg viewBox="0 0 16 16" width="15" height="15"><rect x="2" y="3" width="5" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="3" width="5" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+              </button>
+              <button id="term-new" title="New Terminal">&#xff0b;</button>
+              <button id="term-kill" title="Kill Terminal">
+                <svg viewBox="0 0 16 16" width="15" height="15"><path d="M3 4.5h10M6.5 4.5V3.2a.7.7 0 0 1 .7-.7h1.6a.7.7 0 0 1 .7.7v1.3M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              </button>
+              <button id="term-max" title="Maximize Panel">
+                <svg viewBox="0 0 16 16" width="14" height="14"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+              </button>
+              <button id="term-hide" title="Close Panel">&#x2715;</button>
+            </div>
+          </div>
+          <div id="terminal-body">
+            <div id="terminal-host"></div>
+            <div id="terminal-tabs-strip"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Status bar -->
+    <footer id="statusbar">
+      <div class="status-left">
+        <span id="status-branch" class="status-btn" hidden></span>
+        <span id="status-live" class="status-btn" hidden></span>
+        <span id="status-path"></span>
+      </div>
+      <div class="status-right">
+        <span id="status-changes" class="status-btn" hidden></span>
+        <span id="status-esp" class="status-btn" hidden></span>
+        <span id="status-lang"></span>
+        <span id="status-cursor">Ln 1, Col 1</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Context menu (file tree) -->
+  <div id="context-menu" class="context-menu" hidden></div>
+  <!-- Dropdown menu (File / Terminal) -->
+  <div id="dropdown" class="dropdown" hidden></div>
+
+  <!-- Settings modal -->
+  <div id="settings-overlay" hidden>
+    <div id="settings-modal">
+      <div class="settings-head">
+        <h2>Settings</h2>
+        <button id="settings-close" title="Close">&#x2715;</button>
+      </div>
+      <div class="settings-body">
+        <section class="settings-group">
+          <h3>Color Theme <span id="theme-current" class="theme-current"></span></h3>
+          <div class="theme-buttons">
+            <button id="theme-select" class="mini-btn">Select Color Theme…</button>
+            <button id="theme-browse" class="mini-btn">Browse themes…</button>
+            <button id="theme-reset" class="mini-btn">Reset to default</button>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <h3>Extensions</h3>
+          <p class="settings-note">Extension support is scaffolded but not enabled yet. Themes are available above via the Open VSX registry.</p>
+        </section>
+
+        <section class="settings-group">
+          <h3>Editor</h3>
+          <label class="setting-row">
+            <input type="checkbox" data-setting="smoothScroll" />
+            <span>Smooth scrolling</span>
+          </label>
+          <label class="setting-row">
+            <input type="checkbox" data-setting="treeAnimation" />
+            <span>Animate folder arrows</span>
+          </label>
+        </section>
+
+        <section class="settings-group">
+          <h3>Keyboard</h3>
+          <div class="setting-row">
+            <span class="setting-label">Command palette</span>
+            <input id="palette-key-input" class="key-input" data-setting="commandPaletteKey" readonly placeholder="Press keys…" />
+            <span class="settings-note" style="margin:0">click & press a shortcut</span>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <h3>Live Server</h3>
+          <label class="setting-row">
+            <input type="checkbox" data-setting="phpEnabled" />
+            <span>Run PHP files (.php) via php-cgi / php</span>
+          </label>
+        </section>
+
+        <section class="settings-group">
+          <h3>SQL</h3>
+          <label class="setting-row">
+            <input type="checkbox" data-setting="sqlEnabled" />
+            <span>Enable SQLite features (open .db files, run queries)</span>
+          </label>
+        </section>
+
+        <section class="settings-group">
+          <h3>ESP32 (USB)</h3>
+          <label class="setting-row">
+            <input type="checkbox" data-setting="espEnabled" />
+            <span>Enable ESP32 flashing</span>
+          </label>
+          <div class="setting-row">
+            <span class="setting-label">Board / chip</span>
+            <select id="esp-chip" data-setting="espChip">
+              <option value="">auto-detect</option>
+              <option value="esp32">esp32</option>
+              <option value="esp32s2">esp32-s2</option>
+              <option value="esp32s3">esp32-s3</option>
+              <option value="esp32c3">esp32-c3</option>
+              <option value="esp32c6">esp32-c6</option>
+              <option value="esp32h2">esp32-h2</option>
+              <option value="esp8266">esp8266</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Port</span>
+            <select id="esp-port" data-setting="espPort"></select>
+            <button id="esp-refresh-ports" class="mini-btn" title="Refresh ports">&#x21bb;</button>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Baud</span>
+            <select id="esp-baud" data-setting="espBaud">
+              <option value="">default</option>
+              <option value="115200">115200</option>
+              <option value="460800">460800</option>
+              <option value="921600">921600</option>
+            </select>
+          </div>
+          <p class="settings-note">Flashing uses the <code>espflash</code> CLI — install it and make sure it is on PATH. Open a firmware <code>.bin</code>/<code>.elf</code> and use the &#x26a1; button in the editor toolbar to flash.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- SSH connect -->
+  <div id="ssh-overlay" hidden>
+    <div id="ssh-modal">
+      <div class="settings-head">
+        <h2>Open Remote Folder (SSH)</h2>
+        <button id="ssh-close" title="Close">&#x2715;</button>
+      </div>
+      <div class="settings-body">
+        <div class="ssh-row"><span>Host</span><input id="ssh-host" type="text" placeholder="example.com or 192.168.1.10" spellcheck="false" /></div>
+        <div class="ssh-row"><span>Port</span><input id="ssh-port" type="number" value="22" /></div>
+        <div class="ssh-row"><span>User</span><input id="ssh-user" type="text" placeholder="root" spellcheck="false" /></div>
+        <div class="ssh-row"><span>Password</span><input id="ssh-pass" type="password" placeholder="(leave empty to use key / agent)" /></div>
+        <div class="ssh-row"><span>Key file</span><input id="ssh-key" type="text" placeholder="/home/you/.ssh/id_ed25519 (optional)" spellcheck="false" /></div>
+        <div class="ssh-row"><span>Folder</span><input id="ssh-path" type="text" placeholder="(optional, defaults to home)" spellcheck="false" /></div>
+        <p class="settings-note">Password is sent over the encrypted SSH connection and never stored. Leave password & key empty to use your running SSH agent.</p>
+        <div class="welcome-foot"><button id="ssh-connect-btn" class="primary-btn" style="width:auto;padding:8px 22px">Connect</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom command tasks manager -->
+  <div id="tasks-overlay" hidden>
+    <div id="tasks-modal">
+      <div class="settings-head">
+        <h2>Commands</h2>
+        <button id="tasks-close" title="Close">&#x2715;</button>
+      </div>
+      <div class="settings-body">
+        <div class="task-add">
+          <input id="task-name" type="text" placeholder="Name (e.g. Run)" />
+          <input id="task-cmd" type="text" placeholder="Command (e.g. cargo run)" />
+          <div class="task-scope">
+            <button class="task-scope-btn" data-scope="workspace">Workspace</button>
+            <button class="task-scope-btn" data-scope="global">Global</button>
+          </div>
+          <button id="task-add-btn" class="primary-btn">Add Command</button>
+        </div>
+        <div id="task-list" class="task-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick pick (theme selection) -->
+  <div id="quickpick-overlay" hidden>
+    <div id="quickpick-box" class="palette-box">
+      <input id="quickpick-input" type="text" placeholder="Select Color Theme…" spellcheck="false" />
+      <div id="quickpick-list"></div>
+    </div>
+  </div>
+
+  <!-- Command palette -->
+  <div id="palette-overlay" hidden>
+    <div id="command-palette">
+      <input id="palette-input" type="text" placeholder="Type a command…" spellcheck="false" />
+      <div id="palette-list"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script type="module" src="ide.js"></script>
+</body>
+</html>
