@@ -64,12 +64,25 @@ TAG="${1:-}"
 if [ -n "$TAG" ]; then
   API="https://api.github.com/repos/$REPO/releases/tags/$TAG"
 else
-  API="https://api.github.com/repos/$REPO/releases/latest"
+  # NB: /releases/latest is flaky for this repo (intermittent 504s from
+  # GitHub), so list releases newest-first and take the first match below.
+  API="https://api.github.com/repos/$REPO/releases?per_page=20"
 fi
 
 info "Looking up release from $REPO..."
-JSON="$(curl -fsSL -H 'Accept: application/vnd.github+json' "$API")" \
-  || die "could not fetch release info (does the tag exist? rate-limited?)"
+JSON=""
+for attempt in 1 2 3 4 5; do
+  if JSON="$(curl -fsSL --retry 2 -H 'Accept: application/vnd.github+json' "$API" 2>/dev/null)" \
+     && [ -n "$JSON" ]; then
+    break
+  fi
+  JSON=""
+  if [ "$attempt" -lt 5 ]; then
+    info "GitHub API busy (attempt $attempt/5) — retrying in 3s…"
+    sleep 3
+  fi
+done
+[ -n "$JSON" ] || die "could not reach the GitHub API after 5 tries (it may be down or rate-limited; try again shortly)."
 
 # Find the linux .tar.gz download URL matching this arch (no jq dependency).
 URL="$(printf '%s\n' "$JSON" \
