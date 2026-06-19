@@ -11,6 +11,24 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Serialize;
 use tauri::Emitter;
 
+/// Build a `Command` that never flashes a console window on Windows.
+///
+/// `std::process::Command` on Windows spawns a visible `conhost`/cmd window
+/// for every child process unless `CREATE_NO_WINDOW` is set — which is why
+/// running git, php, node, etc. popped up windows. On other platforms this is
+/// just `Command::new`.
+fn win_cmd(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[allow(unused_mut)]
+    let mut c = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
+    c
+}
+
 // ===========================================================================
 // Filesystem (explorer)
 // ===========================================================================
@@ -352,8 +370,11 @@ struct GitStatus {
 }
 
 fn run_git(cwd: &str, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
+    let out = win_cmd("git")
         .current_dir(cwd)
+        // Never block waiting for an interactive credential prompt (which has
+        // no console to show in, so it would hang forever).
+        .env("GIT_TERMINAL_PROMPT", "0")
         .args(args)
         .output()
         .map_err(|e| e.to_string())?;
@@ -366,8 +387,9 @@ fn run_git(cwd: &str, args: &[&str]) -> Result<String, String> {
 
 #[tauri::command]
 fn git_status(cwd: String) -> Result<GitStatus, String> {
-    let inside = Command::new("git")
+    let inside = win_cmd("git")
         .current_dir(&cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
         .args(["rev-parse", "--is-inside-work-tree"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -457,8 +479,9 @@ fn git_init(cwd: String) -> Result<String, String> {
 /// Clone `url` into directory `dest`; returns the path of the cloned folder.
 #[tauri::command]
 fn git_clone(url: String, dest: String) -> Result<String, String> {
-    let out = Command::new("git")
+    let out = win_cmd("git")
         .current_dir(&dest)
+        .env("GIT_TERMINAL_PROMPT", "0")
         .args(["clone", "--progress", &url])
         .output()
         .map_err(|e| e.to_string())?;
@@ -698,7 +721,7 @@ fn esp_flash(
     args.push(image);
 
     thread::spawn(move || {
-        let spawned = Command::new("espflash")
+        let spawned = win_cmd("espflash")
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -958,7 +981,7 @@ fn run_php(file: &Path, method: &str, query: &str, body: &[u8]) -> Option<(u16, 
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let mut cmd = Command::new("php-cgi");
+    let mut cmd = win_cmd("php-cgi");
     cmd.env("REDIRECT_STATUS", "200")
         .env("GATEWAY_INTERFACE", "CGI/1.1")
         .env("SERVER_PROTOCOL", "HTTP/1.1")
@@ -983,7 +1006,7 @@ fn run_php(file: &Path, method: &str, query: &str, body: &[u8]) -> Option<(u16, 
     }
 
     // Fallback: plain `php` CLI — no request context, body only.
-    let out = Command::new("php").arg(&script).output().ok()?;
+    let out = win_cmd("php").arg(&script).output().ok()?;
     if !out.status.success() && out.stdout.is_empty() {
         let mut msg = b"PHP error:\n".to_vec();
         msg.extend_from_slice(&out.stderr);
@@ -1077,6 +1100,51 @@ fn handle_live_request(mut req: tiny_http::Request, root: &Path, php: bool) {
     }
 }
 
+/// Does `root` contain at least one `.php` file? A bounded walk that skips
+/// heavy/vendor directories and gives up after a fixed budget, so PHP is only
+/// ever spun up for projects that actually use it (and a huge tree can't stall
+/// server startup).
+fn project_has_php(root: &Path) -> bool {
+    const SKIP: &[&str] = &[
+        "node_modules", ".git", "vendor", "dist", "build", "target", ".next", ".cache",
+    ];
+    let mut stack = vec![root.to_path_buf()];
+    let mut budget = 5000usize;
+    while let Some(dir) = stack.pop() {
+        let rd = match fs::read_dir(&dir) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        for entry in rd.flatten() {
+            if budget == 0 {
+                return false;
+            }
+            budget -= 1;
+            let ft = match entry.file_type() {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            if ft.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with('.') || SKIP.contains(&name.as_ref()) {
+                    continue;
+                }
+                stack.push(entry.path());
+            } else if entry
+                .path()
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("php"))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[tauri::command]
 fn live_server_start(
     state: tauri::State<LiveState>,
@@ -1087,6 +1155,8 @@ fn live_server_start(
     if let Some(ls) = guard.as_ref() {
         return Ok(ls.port);
     }
+    // Only run in PHP mode if the project actually contains a .php file.
+    let php = php && project_has_php(Path::new(&root));
     let server = tiny_http::Server::http("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = server
         .server_addr()
@@ -1164,7 +1234,7 @@ fn open_url(url: String) -> Result<(), String> {
     let prog = "open";
     #[cfg(target_os = "windows")]
     let prog = "explorer";
-    Command::new(prog)
+    win_cmd(prog)
         .arg(&url)
         .spawn()
         .map(|_| ())
@@ -1377,7 +1447,7 @@ fn dbg_node_start(
         let _ = c.kill();
     }
     let port = free_port()?;
-    let mut cmd = Command::new("node");
+    let mut cmd = win_cmd("node");
     cmd.arg(format!("--inspect-brk=127.0.0.1:{port}")).arg(&file);
     if let Some(d) = cwd.filter(|d| !d.is_empty()) {
         cmd.current_dir(d);
@@ -1438,7 +1508,7 @@ fn dbg_run(
     if let Some(mut c) = state.0.lock().unwrap().take() {
         let _ = c.kill();
     }
-    let mut cmd = Command::new(&program);
+    let mut cmd = win_cmd(&program);
     cmd.args(&args);
     if let Some(d) = cwd.filter(|d| !d.is_empty()) {
         cmd.current_dir(d);
