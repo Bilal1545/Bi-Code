@@ -1252,84 +1252,10 @@ fn http_get_base64(url: String) -> Result<String, String> {
 }
 
 // ===========================================================================
-// GitHub — sign in with the OAuth device flow and list repositories for the
-// clone picker. The HTTP happens here (not in the webview) because GitHub's
-// device/token endpoints don't send CORS headers.
+// GitHub — reuse the user's GitHub CLI (`gh`) auth to list repositories for
+// the clone picker. No separate sign-in/token: we shell out to `gh`, which the
+// user already logged in with via `gh auth login`.
 // ===========================================================================
-
-fn json_body(resp: ureq::Response) -> Result<serde_json::Value, String> {
-    let s = resp.into_string().map_err(|e| e.to_string())?;
-    serde_json::from_str(&s).map_err(|e| e.to_string())
-}
-
-#[derive(Serialize)]
-struct GhDeviceCode {
-    device_code: String,
-    user_code: String,
-    verification_uri: String,
-    interval: u64,
-    expires_in: u64,
-}
-
-/// Step 1 of the device flow: ask GitHub for a user code to show the user.
-#[tauri::command]
-fn gh_device_start(client_id: String) -> Result<GhDeviceCode, String> {
-    let resp = ureq::post("https://github.com/login/device/code")
-        .set("Accept", "application/json")
-        .send_form(&[("client_id", client_id.as_str()), ("scope", "repo")])
-        .map_err(|e| e.to_string())?;
-    let v = json_body(resp)?;
-    if let Some(err) = v["error"].as_str() {
-        return Err(v["error_description"].as_str().unwrap_or(err).to_string());
-    }
-    Ok(GhDeviceCode {
-        device_code: v["device_code"].as_str().unwrap_or_default().to_string(),
-        user_code: v["user_code"].as_str().unwrap_or_default().to_string(),
-        verification_uri: v["verification_uri"].as_str().unwrap_or_default().to_string(),
-        interval: v["interval"].as_u64().unwrap_or(5),
-        expires_in: v["expires_in"].as_u64().unwrap_or(900),
-    })
-}
-
-#[derive(Serialize)]
-struct GhPoll {
-    status: String,
-    token: Option<String>,
-}
-
-/// Step 2: poll until the user authorizes (or the code is denied/expires).
-#[tauri::command]
-fn gh_device_poll(client_id: String, device_code: String) -> Result<GhPoll, String> {
-    let resp = ureq::post("https://github.com/login/oauth/access_token")
-        .set("Accept", "application/json")
-        .send_form(&[
-            ("client_id", client_id.as_str()),
-            ("device_code", device_code.as_str()),
-            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-        ]);
-    let v = match resp {
-        Ok(r) => json_body(r)?,
-        Err(ureq::Error::Status(_, r)) => json_body(r)?,
-        Err(e) => return Err(e.to_string()),
-    };
-    if let Some(tok) = v["access_token"].as_str() {
-        return Ok(GhPoll {
-            status: "authorized".into(),
-            token: Some(tok.to_string()),
-        });
-    }
-    let status = match v["error"].as_str().unwrap_or("error") {
-        "authorization_pending" => "pending",
-        "slow_down" => "slow_down",
-        "expired_token" => "expired",
-        "access_denied" => "denied",
-        _ => "error",
-    };
-    Ok(GhPoll {
-        status: status.to_string(),
-        token: None,
-    })
-}
 
 #[derive(Serialize)]
 struct GhRepo {
@@ -1339,43 +1265,54 @@ struct GhRepo {
     description: String,
 }
 
-/// List every repo the signed-in account owns or can access (first 500).
+/// The token `gh` is logged in with — reused so private clones work over git
+/// without a separate sign-in.
 #[tauri::command]
-fn gh_list_repos(token: String) -> Result<Vec<GhRepo>, String> {
-    let mut out = Vec::new();
-    for page in 1..=5 {
-        let url = format!(
-            "https://api.github.com/user/repos?per_page=100&sort=pushed&page={}&affiliation=owner,collaborator,organization_member",
-            page
-        );
-        let resp = ureq::get(&url)
-            .set("Accept", "application/vnd.github+json")
-            .set("Authorization", &format!("Bearer {}", token))
-            .set("User-Agent", "Bi-Code")
-            .call()
-            .map_err(|e| e.to_string())?;
-        let v = json_body(resp)?;
-        let items = match v.as_array() {
-            Some(a) => a,
-            None => break,
-        };
-        let n = items.len();
-        if n == 0 {
-            break;
+fn gh_cli_token() -> Result<String, String> {
+    let out = win_cmd("gh")
+        .args(["auth", "token"])
+        .output()
+        .map_err(|_| "GitHub CLI (gh) is not installed.".to_string())?;
+    let tok = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || tok.is_empty() {
+        return Err("Not logged in to the GitHub CLI. Run: gh auth login".to_string());
+    }
+    Ok(tok)
+}
+
+/// List every repo the `gh`-authenticated account owns or can access.
+#[tauri::command]
+fn gh_cli_repos() -> Result<Vec<GhRepo>, String> {
+    let out = win_cmd("gh")
+        .args([
+            "api",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member",
+            "--paginate",
+        ])
+        .output()
+        .map_err(|_| "GitHub CLI (gh) is not installed.".to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        if err.contains("auth") || err.contains("logged in") || err.contains("authentication") {
+            return Err("Not logged in to the GitHub CLI. Run: gh auth login".to_string());
         }
-        for r in items {
-            out.push(GhRepo {
+        return Err(err.trim().to_string());
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    let mut repos = Vec::new();
+    if let Some(arr) = v.as_array() {
+        for r in arr {
+            repos.push(GhRepo {
                 full_name: r["full_name"].as_str().unwrap_or_default().to_string(),
                 clone_url: r["clone_url"].as_str().unwrap_or_default().to_string(),
                 private: r["private"].as_bool().unwrap_or(false),
                 description: r["description"].as_str().unwrap_or_default().to_string(),
             });
         }
-        if n < 100 {
-            break;
-        }
     }
-    Ok(out)
+    Ok(repos)
 }
 
 /// Clone a GitHub repo, injecting the token for private repos, then scrubbing
@@ -1783,9 +1720,8 @@ pub fn run() {
             http_get_text,
             http_get_base64,
             open_url,
-            gh_device_start,
-            gh_device_poll,
-            gh_list_repos,
+            gh_cli_token,
+            gh_cli_repos,
             gh_clone,
             ssh_connect,
             ssh_disconnect,
